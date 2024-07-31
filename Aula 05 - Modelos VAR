@@ -48,3 +48,53 @@ data_macro[, month := NULL]
 
 # Filtrando os dados para o período após março de 2013
 data_macro = data_macro[Data >= "mar 2013", .(Data, Dep_Total_yoy, PIB_yoy, Desemprego_yoy, Selic_diff, IPCA_12M_diff)]
+
+# Garantir que Data seja um formato de data
+data_macro[, Data := as.Date(as.yearmon(Data))]
+
+# Transformar os dados para o formato longo
+data_long <- pivot_longer(data_macro, 
+                          cols = -Data, 
+                          names_to = "Variable", 
+                          values_to = "Value")
+
+# Criar o gráfico
+ggplot(data_long, aes(x = Data, y = Value, group = Variable, color = Variable)) +
+  geom_line() + 
+  facet_wrap(~ Variable, scales = "free_y", ncol = 4) + # Ajuste o número de colunas
+  scale_x_date(
+    breaks = scales::date_breaks("1 year"), # Ajuste o intervalo dos rótulos
+    labels = scales::date_format("%Y") # Formatação dos rótulos
+  ) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(x = "Tempo", y = "Valor", title = "Séries Temporais com Eixos Separados") +
+  theme(legend.position = "none")
+
+
+# Função para aplicar o teste ADF
+apply_adf <- function(data, var) {
+  result <- adf.test(na.omit(data[[var]]))
+  p_value <- result$p.value
+  # Decidir se a série é estacionária com base no p-valor
+  stationary <- ifelse(p_value < 0.05, "Sim", "Não")
+  return(data.table(variable = var, test = "ADF", p_value = p_value, stationary = stationary))
+}
+
+# Função para aplicar o teste KPSS
+apply_kpss <- function(data, var) {
+  result <- ur.kpss(na.omit(data[[var]]), type = "mu")
+  p_value <- result@teststat
+  critical_value <- result@cval[2]
+  stationary <- ifelse(p_value < critical_value, "Não", "Sim")
+  return(data.table(variable = var, test = "KPSS", p_value = p_value, stationary = stationary))
+}
+
+# Função para aplicar o teste Phillips-Perron
+apply_pp <- function(data, var) {
+  result <- pp.test(na.omit(data[[var]]))
+  p_value <- result$p.value
+  stationary <- ifelse(p_value < 0.05, "Sim", "Não")
+  return(data.table(variable = var, test = "PP", p_value = p_value, stationary = stationary))
+}
+
+
