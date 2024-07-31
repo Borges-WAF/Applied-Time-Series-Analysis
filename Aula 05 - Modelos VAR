@@ -1,0 +1,50 @@
+# Carregando as bibliotecas necessárias
+library(data.table)     # Manipulação de dados em tabelas de dados
+library(GetBCBData)     # Acesso aos dados do Banco Central do Brasil
+library(sidrar)         # Acesso aos dados do IBGE/SIDRA
+library(zoo)            # Manipulação de séries temporais
+
+# Obtendo os dados do Banco Central do Brasil
+dados_bacen = data.table(gbcbd_get_series(
+    id = c(Selic = 4189, IPCA_12M = 13522, Desemprego = 24369, Dep_Vista = 27790, Dep_Poup = 1835, Dep_Prazo = 27805),   
+    first.date = "2010-01-01", # Data inicial dos dados
+    last.date = "2024-03-31",  # Data final dos dados
+    format.data = "wide"       # Formato dos dados em colunas separadas
+))
+
+# Extrair o último dia de cada mês para cada série
+dados_bacen[, Data := ref.date] # Adiciona a coluna Data para futuras operações
+# Preenche valores NA com o último valor não-NA disponível
+dados_bacen = dados_bacen[, lapply(.SD, function(x) { zoo::na.locf0(x, fromLast = FALSE) })]
+# Mantém apenas o último dia de cada mês
+dados_bacen = dados_bacen[, .SD[.N], by = .(year(ref.date), month(ref.date))]
+# Converte a data para o formato ano-mês
+dados_bacen[, Data := as.yearmon(Data)]
+# Filtra para manter apenas os últimos dias de março, junho, setembro e dezembro
+dados_bacen = dados_bacen[month %in% c(3, 6, 9, 12)]
+
+# Calcula os depósitos totais
+dados_bacen[, Dep_Total := Dep_Vista + Dep_Prazo + Dep_Poup] # Soma de todos os tipos de depósitos
+# Calcula a variação anual (year-over-year) dos depósitos totais
+dados_bacen[, Dep_Total_yoy := ((Dep_Total / dplyr::lag(Dep_Total, 4)) - 1) * 100]
+# Calcula a variação anual do desemprego
+dados_bacen[, Desemprego_yoy := ((Desemprego / dplyr::lag(Desemprego, 4)) - 1) * 100]
+# Calcula a diferença anual do IPCA (inflação)
+dados_bacen[, IPCA_12M_diff := c(NA, diff(IPCA_12M))]
+# Calcula a diferença logarítmica da taxa Selic
+dados_bacen[, Selic_diff := c(NA, diff(log(Selic)))]
+
+# Obtendo dados do PIB do IBGE/SIDRA
+pib_yoy = data.table(get_sidra(api = "/t/5932/n1/all/v/6561/p/all/c11255/90707/d/v6561%201"))
+# Renomeia as colunas e formata as datas
+pib_yoy = pib_yoy[, .(Data = `Trimestre (Código)`, PIB_yoy = Valor)]
+pib_yoy[, Data := as.yearmon(paste0(substr(Data, 1, 4), "-", as.numeric(substr(Data, 6, 6)) * 3))]
+
+# Mesclando os dados do PIB com os dados do Banco Central
+data_macro = pib_yoy[dados_bacen, on = "Data"]
+# Removendo colunas auxiliares não necessárias
+data_macro[, year := NULL] 
+data_macro[, month := NULL]
+
+# Filtrando os dados para o período após março de 2013
+data_macro = data_macro[Data >= "mar 2013", .(Data, Dep_Total_yoy, PIB_yoy, Desemprego_yoy, Selic_diff, IPCA_12M_diff)]
