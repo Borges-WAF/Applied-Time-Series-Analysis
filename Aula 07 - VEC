@@ -1,0 +1,37 @@
+# Carregamento de bibliotecas necessárias
+library(tidyverse)  # Conjunto de pacotes para manipulação de dados e visualização
+library(timetk)     # Ferramentas para manipulação de séries temporais
+library(vars)       # Modelagem de vetores autoregressivos e VECM
+library(urca)       # Testes de raízes unitárias e cointegração
+library(stats)      # Funções estatísticas básicas
+library(forecast)   # Ferramentas para previsão de séries temporais
+theme_set(theme_bw())  # Configura o tema padrão para gráficos
+
+# URL para os dados de preços ajustados das ações BHP e VALE
+webpage = "https://faculty.chicagobooth.edu/-/media/faculty/ruey-s-tsay/teaching/fts3/"
+
+# Leitura e preparação dos dados
+y_tbl <-
+  inner_join(read_delim(file = str_c(webpage, "d-bhp0206.txt"), delim = " "),
+             read_delim(file = str_c(webpage, "d-vale0206.txt"), delim = " "),
+             by = c("Mon", "day", "year"), suffix = c("_BHP", "_VALE")) %>%
+  gather(variable, value, -c("Mon", "day", "year")) %>%
+  filter(str_sub(variable, 1, 8) == "adjclose") %>%
+  mutate(date = (year*10000 + Mon*100 + day) %>% as.character() %>% as.Date("%Y%m%d" ),
+         variable = str_sub(variable, 10, -1),
+         logvalue = log(value))
+
+# Conversão para o formato zoo, usado para manipulação de séries temporais
+y_zoo <-
+  y_tbl %>%
+  dplyr::select(date, variable, logvalue) %>%
+  spread(variable, logvalue) %>%
+  tk_zoo(select = -date, date_var = date)
+
+# Plotagem dos preços ajustados em log para BHP e VALE
+y_tbl %>%
+  ggplot(aes(x = date, y = value, col = variable)) +
+  geom_line() +
+  scale_y_log10(breaks = c(0,10,20,30,40)) +
+  scale_color_manual(values = c("gray10","gray60")) +
+  labs(x = "", y = "", col = "", title = "Log of adjusted close price for BHP and VALE")
